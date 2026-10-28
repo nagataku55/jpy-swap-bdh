@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.log
+.venv/
+venv/
+
+# ビルド成果物: history_store.py を実行すれば誰でも再生成できるため管理対象外
+swap_history.db
+
+# Excelの一時ロックファイル
+~$*
