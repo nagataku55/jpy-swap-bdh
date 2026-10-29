@@ -18,7 +18,26 @@ Private Const INDEX_NAME As String = "TONA"
 Private Const CCY As String = "JPY"
 
 
-Public Sub RunExportToDb()
+' シート上のボタンに割り当てる(結果をMsgBoxで表示)
+Public Sub RunExportToDb_Manual()
+    Dim msg As String
+    msg = DoExportToDb()
+
+    If InStr(1, msg, "エラー", vbTextCompare) = 1 Then
+        MsgBox msg, vbExclamation
+    Else
+        MsgBox msg, vbInformation
+    End If
+End Sub
+
+' DailyUpdate.bas等、MsgBoxを出せない無人実行から呼ぶための静音版。
+' 戻り値は結果メッセージ(1行)。呼び出し側でログに書き込む想定。
+Public Function RunExportToDb_Silent() As String
+    RunExportToDb_Silent = DoExportToDb()
+End Function
+
+' JPY_TONA_Histシートを読んでFastAPIへPOSTする共通処理。結果メッセージを返す。
+Private Function DoExportToDb() As String
     Dim ws As Worksheet
     Dim lastRow As Long, lastCol As Long
     Dim r As Long, c As Long
@@ -33,8 +52,8 @@ Public Sub RunExportToDb()
     lastCol = ws.Cells(TENOR_LABEL_ROW, ws.Columns.Count).End(xlToLeft).Column
 
     If lastRow < DATA_START_ROW Then
-        MsgBox "データ行が見つかりません。", vbExclamation
-        Exit Sub
+        DoExportToDb = "エラー: データ行が見つかりません"
+        Exit Function
     End If
 
     ReDim parts(1 To (lastRow - DATA_START_ROW + 1) * (lastCol - FIRST_TENOR_COL + 1))
@@ -56,8 +75,8 @@ Public Sub RunExportToDb()
     Next r
 
     If n = 0 Then
-        MsgBox "送信するデータがありません。", vbExclamation
-        Exit Sub
+        DoExportToDb = "エラー: 送信するデータがありません"
+        Exit Function
     End If
 
     ReDim Preserve parts(1 To n)
@@ -68,11 +87,11 @@ Public Sub RunExportToDb()
     resp = HttpPostJson(API_URL, body)
 
     If IsError(resp) Then
-        MsgBox "取り込みに失敗しました。FastAPIサーバー(uvicorn main:app)が起動しているか確認してください。", vbExclamation
+        DoExportToDb = "エラー: FastAPIサーバー(uvicorn main:app)に接続できませんでした"
     Else
-        MsgBox "取り込み完了 (" & n & "件送信): " & resp, vbInformation
+        DoExportToDb = "取り込み完了 (" & n & "件送信): " & resp
     End If
-End Sub
+End Function
 
 
 ' Returns the response body (String) on success, or CVErr(...) on failure
