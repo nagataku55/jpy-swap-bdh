@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Excelをバックグラウンドで開き、DailyUpdate.RunDailyUpdate_Silent を実行する。
     Bloombergの引け値更新後(16:30頃)にWindowsタスクスケジューラから起動する想定。
@@ -74,3 +74,4 @@ finally {
 }
 
 exit $exitCode
+

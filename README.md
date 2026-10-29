@@ -40,6 +40,7 @@ run_daily_update.ps1 + タスクスケジューラで16:30頃に無人実行す�
 | `ExportHistLevels.bas` | ExcelのVBAマクロ。`Config`シートで指定したシートをCSVへ出力する(監査ログ用) |
 | `DailyUpdate.bas` | 上記2つを「再計算待ち→エラーチェック→保存→CSV出力→DB取り込み→ログ記録」の1本の処理にまとめる |
 | `run_daily_update.ps1` | Excelを非表示で開き`DailyUpdate.RunDailyUpdate_Silent`を実行する(タスクスケジューラから呼ぶ) |
+| `start_api_server.ps1` | `uvicorn main:app`をバックグラウンドで起動する(ログオン時にタスクスケジューラから呼ぶ。ポートが既に使用中なら何もしないので多重起動しない) |
 | `swap_history.db` | SQLite本体(git管理外。`history_store.py`が自動生成する) |
 
 ## セットアップ
@@ -111,10 +112,12 @@ Excelでボタンを押して`DailyUpdate.RunDailyUpdate_Manual`を実行する�
 
 ### F. 16:30頃に自動実行する(タスクスケジューラ)
 
-FastAPIサーバーを常駐させる(ログオン時に自動起動):
+FastAPIサーバーを常駐させる(ログオン時に自動起動)。`start_api_server.ps1`は、
+指定ポートが既に使用中なら何もしない(ログオンのたびに重複起動してWinError 10048
+「アドレス使用中」になるのを防ぐ):
 
 ```
-schtasks /Create /TN "SwapHistory_ApiServer" /TR "cmd /c cd /d C:\python\swap && uvicorn main:app" /SC ONLOGON /RL LIMITED
+schtasks /Create /TN "SwapHistory_ApiServer" /TR "powershell -ExecutionPolicy Bypass -File C:\python\swap\start_api_server.ps1" /SC ONLOGON /RL LIMITED
 ```
 
 16:30に`DailyUpdate.RunDailyUpdate_Silent`を実行:
