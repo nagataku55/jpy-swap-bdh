@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS swap_history (
 """
 
 # forward_spec: 「どのフォワードスワップ(start_tenor x forward_tenor)を追跡するか」の設定。
-# ExcelのForwardConfigシートの日次ミラー(sync_forward_specで全件置き換えられる)という
+# Excelのconfig_fwdシートの日次ミラー(sync_forward_specで全件置き換えられる)という
 # 位置づけなので、ここ自体を手で編集することは想定していない。
 _FORWARD_SPEC_SCHEMA = """
 CREATE TABLE IF NOT EXISTS forward_spec (
@@ -128,7 +128,7 @@ def load_history(index_name: str = "TONA", ccy: str = "JPY"):
 
 
 # ---------------------------------------------------------------------------
-# forward_spec: ExcelのForwardConfigシートのミラー(POST /forwardspec/sync用)
+# forward_spec: Excelのconfig_fwdシートのミラー(POST /forwardspec/sync用)
 # ---------------------------------------------------------------------------
 
 def sync_forward_spec(specs: list[dict]) -> int:
@@ -136,7 +136,7 @@ def sync_forward_spec(specs: list[dict]) -> int:
 
     specs: [{"start_tenor": "1Y", "forward_tenor": "1Y", "index_name": "TONA",
              "ccy": "JPY", "active": True}, ...]
-    ExcelのForwardConfigシートが正データなので、ここは「今シートに書かれている
+    Excelのconfig_fwdシートが正データなので、ここは「今シートに書かれている
     内容そのもの」で毎回上書きする(差分更新ではない)。forward_history側のデータは
     一切触らないので、過去に計算済みのレートは常に残る。
     """

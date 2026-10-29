@@ -14,8 +14,8 @@ Bloomberg Terminal (BDH)
 Excel ブック(jpy_tona_data.xlsm)
   ├─ Controlシート: BDH取得設定・データシート名・最大バックフィル日数(既定365日)
   ├─ JPY_TONA_Histシート: スポットレート本体(ワイド形式)
-  ├─ Configシート: CSV監査出力ジョブ一覧(スポット用)
-  ├─ ForwardConfigシート: 追跡するフォワードスワップ一覧(StartTenor|ForwardTenor|Active)
+  ├─ config_csvシート: CSV監査出力ジョブ一覧(スポット用)
+  ├─ config_fwdシート: 追跡するフォワードスワップ一覧(StartTenor|ForwardTenor|Active)
   └─ UpdateLogシート: 日次実行ログ(自動生成)
         │
         ├─ ExportHistLevels.bas ──▶ CSV監査ログ(csv_audit/配下、日付付きファイル名)
@@ -29,11 +29,11 @@ Excel ブック(jpy_tona_data.xlsm)
                                      ┌─────────────────────────┼─────────────────────┐
                                      ▼                         ▼                     ▼
                           swap_history.db              forward_spec           forward_history
-                        (history_store.py)          (ExcelのForwardConfig    (計算済みフォワード
+                        (history_store.py)          (Excelのconfig_fwd      (計算済みフォワード
                                                       シートの日次ミラー)      スワップレート)
                                                                │
                                                curves.py / qlutils.py / forward_history.py
-                                               (カーブ再構築→fairRate()でパーレート計算)
+                                               (カーブ再構築→forward_swap_rate()でパーレート計算)
 
 DailyUpdate.bas が上記を1本の処理としてまとめ、run_daily_update.ps1 + タスクスケジューラで
 16:30頃に無人実行する。
@@ -46,7 +46,7 @@ DailyUpdate.bas が上記を1本の処理としてまとめ、run_daily_update.p
 
 | ファイル | 役割 |
 |---|---|
-| `jpy_tona_data.xlsx`(運用時は`.xlsm`) | Excel本体。Control/JPY_TONA_Hist/Config/ForwardConfig/UpdateLogシートを持つ |
+| `jpy_tona_data.xlsx`(運用時は`.xlsm`) | Excel本体。Control/JPY_TONA_Hist/config_csv/config_fwd/UpdateLogシートを持つ |
 | `gen_bdh_workbook.py` | 上記ワークブックをゼロから生成するスクリプト(BDH数式付き)。テナー構成やレイアウトを変えたい時はこれを編集して再実行する |
 | `main.py` | FastAPIアプリ本体。`/history`・`/forwardspec/sync`・`/forwardhistory/refresh`・`/forwardhistory`を提供 |
 | `history_store.py` | SQLite(`swap_history.db`)への保存・読み出し(`swap_history`/`forward_spec`/`forward_history`の3テーブル) |
@@ -55,8 +55,8 @@ DailyUpdate.bas が上記を1本の処理としてまとめ、run_daily_update.p
 | `forward_history.py` | `swap_history`にあるがまだ`forward_history`に無い日付をまとめて計算する(`refresh_missing`)。日次実行と初回/欠損バックフィルを区別しない1本のロジック |
 | `requirements.txt` | Python依存パッケージ(`pip install -r requirements.txt`) |
 | `ExportToDb.bas` | ExcelのVBAマクロ。`JPY_TONA_Hist`シートを読み、FastAPIの`/history`へJSONでPOSTする |
-| `ExportHistLevels.bas` | ExcelのVBAマクロ。`Config`シートで指定したシートをCSVへ出力する(スポットの監査ログ用) |
-| `ForwardSpec.bas` | ExcelのVBAマクロ。`ForwardConfig`シートの内容を`/forwardspec/sync`へPOSTし、DBの`forward_spec`を同期する |
+| `ExportHistLevels.bas` | ExcelのVBAマクロ。`config_csv`シートで指定したシートをCSVへ出力する(スポットの監査ログ用) |
+| `ForwardSpec.bas` | ExcelのVBAマクロ。`config_fwd`シートの内容を`/forwardspec/sync`へPOSTし、DBの`forward_spec`を同期する |
 | `ForwardHistory.bas` | ExcelのVBAマクロ。`/forwardhistory/refresh`を呼び、欠損しているフォワードスワップレートを計算させる |
 | `DailyUpdate.bas` | 上記を「再計算待ち→エラーチェック→保存→CSV出力→DB取り込み→ForwardSpec同期→ForwardHistory更新→ログ記録」の1本の処理にまとめる |
 | `run_daily_update.ps1` | Excelを非表示で開き`DailyUpdate.RunDailyUpdate_Silent`を実行する(タスクスケジューラから呼ぶ) |
@@ -79,8 +79,8 @@ QuantLib(カーブ構築)・pandas・openpyxl(ワークブック生成)・fastap
 - 既に`jpy_tona_data.xlsx`があるので、そのまま使ってよい
 - レイアウトやテナー構成を変えたい/一から作り直したい場合は `python gen_bdh_workbook.py` を実行する
   (`Control`シートのティッカー欄B9:B22が空欄で生成されるので、実際のBloombergティッカーを入力すること。
-  ただしこのスクリプトは`ForwardConfig`シートや最大バックフィル日数セルは作らないので、再生成後は
-  本READMEの「①-②」相当の設定を手動で追加すること)
+  ただしこのスクリプトは`config_fwd`シートや最大バックフィル日数セルは作らないので、再生成後は
+  本READMEのセットアップ内容を参考に手動で追加すること)
 - マクロを使うには、Excelで開いて「名前を付けて保存」→「Excelマクロ有効ブック(.xlsm)」で保存し直す
 
 ### 3. VBAモジュールの組み込み
@@ -120,7 +120,7 @@ Excelでボタンを押して`ExportToDb.RunExportToDb_Manual`を実行する。
 ### D. CSV監査ログを出力する(スポット)
 
 Excelでボタンを押して`ExportHistLevels.ExportAllSheetsToCsv`を実行する。
-`Config`シートのテーブル(`SheetName | SaveFolder | FileName | DataStartCell`)に従って、
+`config_csv`シートのテーブル(`SheetName | SaveFolder | FileName | DataStartCell`)に従って、
 指定したシートをCSVに書き出す。
 
 - `SaveFolder`が絶対パス(`C:\...`や`\\server\...`)でなければ、**ブックが置かれているフォルダからの相対パス**として解決される(フォルダが無ければ自動作成)。PCが変わってもセルの書き換えが不要
@@ -128,7 +128,7 @@ Excelでボタンを押して`ExportHistLevels.ExportAllSheetsToCsv`を実行す
 
 ### E. フォワードスワップレートを追加/計算する
 
-1. `ForwardConfig`シートに行を追加する(`StartTenor`, `ForwardTenor`, `Active`=TRUE)。例: `2Y`, `2Y`, TRUE
+1. `config_fwd`シートに行を追加する(`StartTenor`, `ForwardTenor`, `Active`=TRUE)。例: `2Y`, `2Y`, TRUE
 2. `ForwardSpec.RunForwardSpecSync_Manual`を実行 → DBの`forward_spec`がシートの内容で同期される
 3. `ForwardHistory.RunForwardHistoryRefresh_Manual`を実行 → 新しく追加したスペックの過去分(`Control!最大バックフィル日数`まで)がまとめて計算され、`forward_history`に入る
 4. 追跡を止めたいだけなら行を消さず`Active`を`FALSE`にする(過去データは残る)
@@ -152,7 +152,7 @@ Excelでボタンを押して`DailyUpdate.RunDailyUpdate_Manual`を実行する�
 3. ワークブックを保存
 4. CSV監査ログを出力(`ExportHistLevels`)
 5. FastAPI経由でスポットをDBに取り込み(`ExportToDb`)
-6. `ForwardConfig`シートをDBに同期(`ForwardSpec`)
+6. `config_fwd`シートをDBに同期(`ForwardSpec`)
 7. フォワードスワップレートの欠損分を計算(`ForwardHistory`)。実質当日分のみ
 8. 結果を`UpdateLog`シートに追記
 
@@ -208,7 +208,7 @@ schtasks /Create /TN "SwapHistory_DailyUpdate" /TR "powershell -ExecutionPolicy 
 
 `UNIQUE(as_of_date, index_name, tenor)` — 同じキーの再取り込みはUPSERT(上書き)される。
 
-### `forward_spec`(追跡するフォワードスワップの一覧。`ForwardConfig`シートのミラー)
+### `forward_spec`(追跡するフォワードスワップの一覧。`config_fwd`シートのミラー)
 
 | 列名 | 型 | 内容 |
 |---|---|---|

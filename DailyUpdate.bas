@@ -2,7 +2,7 @@ Attribute VB_Name = "DailyUpdate"
 Option Explicit
 
 ' BDH再計算後に、エラーが無ければ保存→CSV監査ログ出力(ExportHistLevels.bas)
-' →FastAPI経由でSQLite取り込み(ExportToDb.bas)→ForwardConfig同期(ForwardSpec.bas)
+' →FastAPI経由でSQLite取り込み(ExportToDb.bas)→config_fwd同期(ForwardSpec.bas)
 ' →フォワードスワップレートの欠損バックフィル(ForwardHistory.bas)まで行う。
 '
 ' 呼び出し方は2通り:

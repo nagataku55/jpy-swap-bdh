@@ -1,17 +1,17 @@
 Attribute VB_Name = "ForwardSpec"
 Option Explicit
 
-' ForwardConfigシート(StartTenor | ForwardTenor | Active)の内容を
+' config_fwdシート(StartTenor | ForwardTenor | Active)の内容を
 ' FastAPIの/forwardspec/syncへPOSTし、DBのforward_specテーブルを完全に置き換える。
 '
-' ForwardConfigシートが正データ、DB側はその単純なミラーという位置づけ。
+' config_fwdシートが正データ、DB側はその単純なミラーという位置づけ。
 ' 新しいフォワードスワップ(例: 2Y2Y)を追加したい時は、ここに行を追加してActiveを
 ' TRUEにしてから同期すればよい(過去分のバックフィルはForwardHistory.bas側で行う)。
 ' 行を削除せずActiveをFALSEにした場合、forward_history側の過去データは消えない
 ' (計算対象から外れるだけ)。
 
 Private Const API_URL As String = "http://127.0.0.1:8000/forwardspec/sync"
-Private Const CONFIG_SHEET As String = "ForwardConfig"
+Private Const CONFIG_SHEET As String = "config_fwd"
 Private Const DATA_START_ROW As Long = 2
 Private Const INDEX_NAME As String = "TONA"
 Private Const CCY As String = "JPY"
@@ -34,7 +34,7 @@ Public Function RunForwardSpecSync_Silent() As String
     RunForwardSpecSync_Silent = DoSync()
 End Function
 
-' ForwardConfigシートを読んでFastAPIへPOSTする共通処理。結果メッセージを返す。
+' config_fwdシートを読んでFastAPIへPOSTする共通処理。結果メッセージを返す。
 Private Function DoSync() As String
     Dim ws As Worksheet
     Dim lastRow As Long

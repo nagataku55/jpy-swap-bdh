@@ -46,7 +46,7 @@ def ingest_history(payload: HistoryIngestRequest):
 
 
 class ForwardSpecItem(BaseModel):
-    """追跡対象のフォワードスワップ1本。ExcelのForwardConfigシートの1行に対応する。"""
+    """追跡対象のフォワードスワップ1本。Excelのconfig_fwdシートの1行に対応する。"""
 
     start_tenor: str
     forward_tenor: str
@@ -58,7 +58,7 @@ class ForwardSpecItem(BaseModel):
 @app.post("/forwardspec/sync")
 def sync_forward_spec(specs: list[ForwardSpecItem]):
     """ForwardSpec.basからのPOSTを受け、forward_specテーブルをspecsの内容で
-    完全に置き換える(ExcelのForwardConfigシートが正データ、DB側はその日次ミラー)。
+    完全に置き換える(Excelのconfig_fwdシートが正データ、DB側はその日次ミラー)。
     forward_history(計算済みレートの履歴)は一切変更しない。"""
     n = history_store.sync_forward_spec([s.model_dump() for s in specs])
     return {"synced": n}

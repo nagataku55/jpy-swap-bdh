@@ -1,14 +1,14 @@
 Attribute VB_Name = "ExportHistLevels"
 Option Explicit
 
-' Configシートの表に列挙されたシートを、それぞれCSVに出力する(データ監査用)。
-' 表の開始位置はConfig!G1(例: "A2")のセル参照で指定する(G1自体は固定セル)。
+' config_csvシートの表に列挙されたシートを、それぞれCSVに出力する(データ監査用)。
+' 表の開始位置はconfig_csv!G1(例: "A2")のセル参照で指定する(G1自体は固定セル)。
 ' その開始セルを1列目として、1列目=SheetName, 2列目=SaveFolder,
 ' 3列目=FileName, 4列目=DataStartCell という並びで読む(行・列とも可変)。
 '
 ' SaveFolderは絶対パス("C:\..."や"\\server\...")でなければ、このブック(ThisWorkbook)が
 ' 置かれているフォルダからの相対パスとして解釈する。フォルダが存在しなければ自動作成する。
-' これにより、PCごとにConfigシートの絶対パスを書き換える必要がなくなる(例: "csv_audit")。
+' これにより、PCごとにconfig_csvシートの絶対パスを書き換える必要がなくなる(例: "csv_audit")。
 '
 ' FileNameに "{date}" を含めると、実行日(yyyy-mm-dd)に置き換える。
 ' これにより、日次の監査ログを上書きせず別ファイルとして残せる。
@@ -16,7 +16,7 @@ Option Explicit
 ' DataStartCell(例: "B1")のセルがCSVの1行目・1列目(A1)になる
 ' (それより上の行・左の列は出力に含めない)。未入力の場合はA1からとする。
 
-Private Const CONFIG_SHEET As String = "Config"
+Private Const CONFIG_SHEET As String = "config_csv"
 Private Const JOB_LIST_START_CELL_REF As String = "G1"
 
 Public Sub ExportAllSheetsToCsv()
@@ -28,7 +28,7 @@ Public Sub ExportAllSheetsToCsv()
     If errMsg <> "" Then
         MsgBox errMsg, vbExclamation
     ElseIf jobCount = 0 Then
-        MsgBox CONFIG_SHEET & " に出力対象の行がありません(Config!" & JOB_LIST_START_CELL_REF & "が指す位置以降にシート名を入力してください)。", vbExclamation
+        MsgBox CONFIG_SHEET & " に出力対象の行がありません(" & CONFIG_SHEET & "!" & JOB_LIST_START_CELL_REF & "が指す位置以降にシート名を入力してください)。", vbExclamation
     Else
         MsgBox jobCount & " 件処理しました:" & vbCrLf & resultLines, vbInformation
     End If
@@ -51,7 +51,7 @@ Public Function ExportAllSheetsToCsv_Quiet() As String
     End If
 End Function
 
-' Configシートのジョブ一覧を読んで各シートをCSV出力する共通処理。
+' config_csvシートのジョブ一覧を読んで各シートをCSV出力する共通処理。
 ' jobCount/resultLinesをByRefで返し、設定不備があればエラーメッセージを返す(正常時は空文字)。
 Private Function RunExportJobs(ByRef jobCount As Long, ByRef resultLines As String) As String
     Dim cfgWs As Worksheet
