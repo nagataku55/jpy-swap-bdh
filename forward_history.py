@@ -16,6 +16,10 @@
   - 計算対象のあったrunでは、監査用CSV(csv_audit/ForwardHistory_YYYY-MM-DD.csv)を
     追記する。Excelのシートを経由しない(forward_historyはそもそもシート上に無いデータ
     なので、サーバー側で直接CSVに残す)。
+  - 1日分のカーブ構築/計算が失敗しても(実データ特有のカーブ形状でQuantLibの
+    ブートストラップが収束しない等)、その日だけスキップして残りの日付の計算を
+    続ける。1日の異常で全体が500エラーになり日次更新全体が止まるのを防ぐため。
+    スキップした日は警告として返す。
 """
 import csv
 from datetime import date, timedelta
@@ -94,57 +98,70 @@ def refresh_missing(
                 if not instruments:
                     continue
 
-                # カーブ構築はこの日付につき1回だけ。missing内の全スペックがこの1つの
-                # curve_idを再利用する(カーブ再構築の回数をスペック数分減らすため)。
-                curve_id = build_curve(
-                    valuation_date_iso=date_iso,
-                    instruments=instruments,
-                    calendar_name=calendar_name,
-                    day_count_code=day_count_code,
-                    overnight_index_code=overnight_index_code,
-                    convention_code=convention_code,
-                    settlement_days=settlement_days,
-                    eom_code=eom_code,
-                    payment_lag_days=payment_lag_days,
-                )
-
-                new_rows_for_date = []
-                for spec in missing:
-                    start_iso, end_iso = _resolve_period(
-                        date_iso, spec["start_tenor"], spec["forward_tenor"], calendar_name, convention_code, eom_code
-                    )
-                    rate = forward_swap_rate(
-                        curve_id,
-                        start_iso,
-                        end_iso,
-                        spec["forward_tenor"],
+                try:
+                    # カーブ構築はこの日付につき1回だけ。missing内の全スペックがこの1つの
+                    # curve_idを再利用する(カーブ再構築の回数をスペック数分減らすため)。
+                    # QuantLibのPiecewiseLogCubicDiscountは遅延評価のため、実際の
+                    # ブートストラップ計算(収束しない場合に例外を投げる)はbuild_curve()
+                    # の時点ではなく、下のforward_swap_rate()内で初めて割引率を読む時に
+                    # 走る。そのため例外はbuild_curve()ではなくここで起きる想定。
+                    curve_id = build_curve(
+                        valuation_date_iso=date_iso,
+                        instruments=instruments,
                         calendar_name=calendar_name,
                         day_count_code=day_count_code,
-                        convention_code=convention_code,
-                        eom_code=eom_code,
                         overnight_index_code=overnight_index_code,
+                        convention_code=convention_code,
+                        settlement_days=settlement_days,
+                        eom_code=eom_code,
                         payment_lag_days=payment_lag_days,
                     )
 
-                    prev_rate = history_store.get_previous_forward_rate(conn, spec, date_iso)
-                    if prev_rate is not None and abs(rate - prev_rate) > WARN_THRESHOLD:
-                        diff_bp = (rate - prev_rate) * 10000
-                        warnings.append(
-                            f"{date_iso} {spec['start_tenor']}x{spec['forward_tenor']}: "
-                            f"前日比{diff_bp:+.1f}bp ({prev_rate:.4f} -> {rate:.4f})"
+                    new_rows_for_date = []
+                    for spec in missing:
+                        start_iso, end_iso = _resolve_period(
+                            date_iso, spec["start_tenor"], spec["forward_tenor"], calendar_name, convention_code, eom_code
+                        )
+                        rate = forward_swap_rate(
+                            curve_id,
+                            start_iso,
+                            end_iso,
+                            spec["forward_tenor"],
+                            calendar_name=calendar_name,
+                            day_count_code=day_count_code,
+                            convention_code=convention_code,
+                            eom_code=eom_code,
+                            overnight_index_code=overnight_index_code,
+                            payment_lag_days=payment_lag_days,
                         )
 
-                    new_rows_for_date.append(
-                        {
-                            "as_of_date": date_iso,
-                            "start_tenor": spec["start_tenor"],
-                            "forward_tenor": spec["forward_tenor"],
-                            "index_name": index_name,
-                            "ccy": ccy,
-                            "rate": rate,
-                            "source": "COMPUTED",
-                        }
+                        prev_rate = history_store.get_previous_forward_rate(conn, spec, date_iso)
+                        if prev_rate is not None and abs(rate - prev_rate) > WARN_THRESHOLD:
+                            diff_bp = (rate - prev_rate) * 10000
+                            warnings.append(
+                                f"{date_iso} {spec['start_tenor']}x{spec['forward_tenor']}: "
+                                f"前日比{diff_bp:+.1f}bp ({prev_rate:.4f} -> {rate:.4f})"
+                            )
+
+                        new_rows_for_date.append(
+                            {
+                                "as_of_date": date_iso,
+                                "start_tenor": spec["start_tenor"],
+                                "forward_tenor": spec["forward_tenor"],
+                                "index_name": index_name,
+                                "ccy": ccy,
+                                "rate": rate,
+                                "source": "COMPUTED",
+                            }
+                        )
+                except Exception as exc:
+                    # この日はカーブが不安定(収束しない等)でまるごとスキップし、
+                    # 他の日付の計算は続ける。原因調査用に警告として記録する。
+                    warnings.append(
+                        f"{date_iso}: カーブ構築/計算に失敗したためスキップしました "
+                        f"({type(exc).__name__}: {exc})"
                     )
+                    continue
 
                 history_store.upsert_forward_rows(conn, new_rows_for_date)
                 computed += len(new_rows_for_date)

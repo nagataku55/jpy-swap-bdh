@@ -113,8 +113,16 @@ def build_curve(
         tenor_period = parse_period(inst["tenor"])
         quote = ql.QuoteHandle(ql.SimpleQuote(inst["rate"]))
 
-        if inst["tenor"] in _ON_ALIASES:
-            # オーバーナイト参照金利そのもの: 決済ラグなし
+        is_overnight = inst["tenor"] in _ON_ALIASES or (
+            tenor_period.units() == ql.Days and tenor_period.length() <= 1
+        )
+        if is_overnight:
+            # オーバーナイト参照金利そのもの: 決済ラグなし。
+            # 文字列が"ON"/"O/N"の場合に加えて、"1D"のように1日物として表記される
+            # 実データ向けに、パース後の期間が1日以下かどうかでも判定する(文字列の
+            # 表記ゆれに頼らない)。これを素通りさせてOISRateHelper(settlement_days=2日)
+            # 扱いにすると、「2日後スタート・1日後満期」という極端に短い縮退した
+            # インストゥルメントになり、カーブの短期側でKruger法の収束が不安定になる。
             helper = ql.DepositRateHelper(quote, tenor_period, 0, calendar, convention, is_eom, day_count)
         else:
             payment_frequency = ql.Once if approx_months(tenor_period) <= 12 else ql.Annual
