@@ -240,6 +240,11 @@ schtasks /Create /TN "SwapHistory_DailyUpdate" /TR "powershell -ExecutionPolicy 
   単一区間のポイントフォワードレートで、`forward_tenor`が1年超(年次複数回払い)だと本来の
   パーレートとは一致しない。フォワード**スワップ**レートが欲しい場合は必ず`curves.forward_swap_rate()`
   を使うこと
+- **`start_tenor`はスポット日基準**: `forward_history._resolve_period()`は、評価日(`as_of_date`)
+  そのものではなく、**スポット日(評価日からsettlement_days営業日後)**を起点に`start_tenor`を
+  進める(`curves.forward_grid()`と同じ規則、市場慣行通り)。例: 評価日2026-10-28→スポット日
+  2026-10-30→1Y1Yのスタート日は2027-10-29(2027-10-30が日曜のためModified Followingで
+  月を跨がない方向、つまり前営業日に調整される)
 - **オーバーナイト金利のテナー表記**: `build_curve()`は`"ON"`/`"O/N"`に加えて、パース後の期間が
   1日以下のテナー(例: `"1D"`)もオーバーナイト参照金利として扱う(決済ラグ無しの
   `DepositRateHelper`)。この判定が無いと、`"1D"`が「2日後スタート・1日後満期」という

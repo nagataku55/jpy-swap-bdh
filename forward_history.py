@@ -120,7 +120,8 @@ def refresh_missing(
                     new_rows_for_date = []
                     for spec in missing:
                         start_iso, end_iso = _resolve_period(
-                            date_iso, spec["start_tenor"], spec["forward_tenor"], calendar_name, convention_code, eom_code
+                            date_iso, spec["start_tenor"], spec["forward_tenor"],
+                            calendar_name, convention_code, eom_code, settlement_days,
                         )
                         rate = forward_swap_rate(
                             curve_id,
@@ -184,11 +185,16 @@ def _resolve_period(
     calendar_name: str,
     convention_code: str,
     eom_code: str,
+    settlement_days: int,
 ) -> tuple[str, str]:
-    """評価日からstart_tenor分進めた開始日と、そこからforward_tenor分進めた終了日を返す。
+    """スポット日(評価日からsettlement_days営業日後)を起点に、start_tenor分進めた
+    開始日と、そこからforward_tenor分進めた終了日を返す。
 
-    excel-fastapi/forward_history.pyのhistorical_forward_rate()と同じ規則:
-    start_tenorは評価日(as_of_date)からそのまま進める(スポット日からではない)。
+    curves.forward_grid()と同じ規則(スポット日基準)。スポットは市場慣行上の
+    フォワードスワップの起点であり、評価日を直接の起点にするのは誤り
+    (以前は旧excel-fastapi/forward_history.pyのhistorical_forward_rate()を
+    そのまま踏襲して評価日基準にしていたが、同じ旧プロジェクト内のcurves.
+    forward_grid()はスポット日基準であり矛盾していた。市場慣行に合わせてこちらに統一する)。
     """
     import QuantLib as ql
 
@@ -200,11 +206,12 @@ def _resolve_period(
 
     y, m, d = (int(x) for x in valuation_date_iso.split("-"))
     ql_valuation = ql.Date(d, m, y)
+    ql_spot = calendar.advance(ql_valuation, settlement_days, ql.Days)
 
     start_period = parse_period(start_tenor)
     fwd_period = parse_period(forward_tenor)
 
-    ql_start = calendar.advance(ql_valuation, start_period, convention, is_eom)
+    ql_start = calendar.advance(ql_spot, start_period, convention, is_eom)
     ql_end = calendar.advance(ql_start, fwd_period, convention, is_eom)
 
     start_iso = f"{ql_start.year():04d}-{ql_start.month():02d}-{ql_start.dayOfMonth():02d}"
