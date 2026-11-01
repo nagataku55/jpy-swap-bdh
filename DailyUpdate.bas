@@ -195,7 +195,9 @@ End Sub
 
 
 ' UpdateLogシート(無ければ自動作成)にタイムスタンプ付きで1行追記する。
-Private Sub LogStatus(msg As String)
+' Public: ExportToDb/ExportHistLevels/ForwardSpec/ForwardHistoryの各*_Manualサブが
+' 単体実行時にもログを残すため、DailyUpdate.LogStatus(...)として呼び出せるようにする。
+Public Sub LogStatus(msg As String)
     Dim ws As Worksheet
     Dim nextRow As Long
 

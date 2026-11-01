@@ -159,6 +159,11 @@ Excelでボタンを押して`DailyUpdate.RunDailyUpdate_Manual`を実行する�
 手順5(スポット取り込み)が失敗した場合は6・7を実行せず中止する。6・7で問題があっても、
 スポット取り込み自体は既に成功しているため全体を失敗扱いにはしない(警告として記録するのみ)。
 
+`ExportToDb`・`ExportHistLevels`・`ForwardSpec`・`ForwardHistory`はそれぞれ`DailyUpdate`を
+介さず単体でボタン実行することもできるが、その場合も結果は`UpdateLog`シートに記録される
+(各`*_Manual`サブが`DailyUpdate.LogStatus`を呼ぶ。`DailyUpdate`経由の時に二重記録されない
+よう、ログを書くのは`*_Manual`側のみで、`*_Silent`/`_Quiet`側は書かない)。
+
 ### G. 16:30頃に自動実行する(タスクスケジューラ)
 
 FastAPIサーバーを常駐させる(ログオン時に自動起動)。`start_api_server.ps1`は、

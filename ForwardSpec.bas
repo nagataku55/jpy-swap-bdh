@@ -17,10 +17,11 @@ Private Const INDEX_NAME As String = "TONA"
 Private Const CCY As String = "JPY"
 
 
-' シート上のボタンに割り当てる(結果をMsgBoxで表示)
+' シート上のボタンに割り当てる(結果をMsgBoxで表示し、UpdateLogシートにも記録する)
 Public Sub RunForwardSpecSync_Manual()
     Dim msg As String
     msg = DoSync()
+    DailyUpdate.LogStatus "ForwardSpec同期(手動実行): " & msg
 
     If InStr(1, msg, "エラー", vbTextCompare) = 1 Then
         MsgBox msg, vbExclamation

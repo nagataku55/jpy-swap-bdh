@@ -19,6 +19,7 @@ Option Explicit
 Private Const CONFIG_SHEET As String = "config_csv"
 Private Const JOB_LIST_START_CELL_REF As String = "G1"
 
+' 単体実行用(結果をMsgBoxで表示し、UpdateLogシートにも記録する)
 Public Sub ExportAllSheetsToCsv()
     Dim jobCount As Long
     Dim resultLines As String
@@ -26,10 +27,13 @@ Public Sub ExportAllSheetsToCsv()
 
     errMsg = RunExportJobs(jobCount, resultLines)
     If errMsg <> "" Then
+        DailyUpdate.LogStatus "CSVエクスポート(手動実行): エラー: " & errMsg
         MsgBox errMsg, vbExclamation
     ElseIf jobCount = 0 Then
+        DailyUpdate.LogStatus "CSVエクスポート(手動実行): 出力対象の行なし"
         MsgBox CONFIG_SHEET & " に出力対象の行がありません(" & CONFIG_SHEET & "!" & JOB_LIST_START_CELL_REF & "が指す位置以降にシート名を入力してください)。", vbExclamation
     Else
+        DailyUpdate.LogStatus "CSVエクスポート(手動実行): " & jobCount & "件処理: " & Replace(resultLines, vbCrLf, " / ")
         MsgBox jobCount & " 件処理しました:" & vbCrLf & resultLines, vbInformation
     End If
 End Sub

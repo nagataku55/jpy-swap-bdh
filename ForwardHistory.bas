@@ -16,10 +16,11 @@ Private Const CONTROL_SHEET As String = "Control"
 Private Const MAX_BACKFILL_DAYS_CELL As String = "B26"
 Private Const DEFAULT_MAX_BACKFILL_DAYS As Long = 365
 
-' シート上のボタンに割り当てる(結果をMsgBoxで表示)
+' シート上のボタンに割り当てる(結果をMsgBoxで表示し、UpdateLogシートにも記録する)
 Public Sub RunForwardHistoryRefresh_Manual()
     Dim msg As String
     msg = DoRefresh()
+    DailyUpdate.LogStatus "ForwardHistory更新(手動実行): " & msg
 
     If InStr(1, msg, "エラー", vbTextCompare) = 1 Then
         MsgBox msg, vbExclamation

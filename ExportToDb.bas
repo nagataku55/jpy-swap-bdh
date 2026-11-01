@@ -18,10 +18,11 @@ Private Const INDEX_NAME As String = "TONA"
 Private Const CCY As String = "JPY"
 
 
-' シート上のボタンに割り当てる(結果をMsgBoxで表示)
+' シート上のボタンに割り当てる(結果をMsgBoxで表示し、UpdateLogシートにも記録する)
 Public Sub RunExportToDb_Manual()
     Dim msg As String
     msg = DoExportToDb()
+    DailyUpdate.LogStatus "DB取り込み(手動実行): " & msg
 
     If InStr(1, msg, "エラー", vbTextCompare) = 1 Then
         MsgBox msg, vbExclamation
