@@ -62,7 +62,7 @@ DailyUpdate.bas が上記を1本の処理としてまとめ、run_daily_update.p
 | `run_daily_update.ps1` | Excelを非表示で開き`DailyUpdate.RunDailyUpdate_Silent`を実行する(タスクスケジューラから呼ぶ) |
 | `start_api_server.ps1` | `uvicorn main:app`をバックグラウンドで起動する(ログオン時にタスクスケジューラから呼ぶ。ポートが既に使用中なら何もしないので多重起動しない) |
 | `swap_history.db` | SQLite本体(git管理外。`history_store.py`が自動生成する) |
-| `csv_audit/` | スポット監査CSV(`ExportHistLevels.bas`)とフォワード監査CSV(`forward_history.py`が自動出力)の保存先。git管理外 |
+| `csv_audit/` | スポット監査CSV(`ExportHistLevels.bas`)とフォワード監査CSV(`forward_history.py`が自動出力、スポットと同じワイド形式)の保存先。git管理外 |
 
 ## セットアップ
 
@@ -254,6 +254,10 @@ schtasks /Create /TN "SwapHistory_DailyUpdate" /TR "powershell -ExecutionPolicy 
   Kruger法のブートストラップが収束しないことがある(`RuntimeError: convergence not reached`)。
   `forward_history.refresh_missing()`はこれを日付単位でキャッチし、その日だけスキップして
   警告に記録し、残りの日付の計算は続ける(1日の異常で日次更新全体が止まらないようにするため)
+- **フォワード監査CSVは差分ログではなく全履歴のスナップショット**: `/forwardhistory/refresh`を
+  実行するたびに(新規計算が0件でも)、`forward_history`の全履歴をワイド形式
+  (1列目=Date、2列目以降は`1Y1Y`・`2Y1Y`のようなスペック列)で`csv_audit/ForwardHistory_
+  <実行日>.csv`に書き出す。`ExportHistLevels.bas`が出力するスポットのCSVと同じ型にしている
 - **カーブ構築は1回あたり約0.3秒かかる**: `build_curve()`はKruger法によるグローバル補間(LogCubic)を
   使っており、ローカル補間より計算コストが高い(旧プロジェクトの設計をそのまま踏襲)。日次運用では
   新規1日分だけなので問題にならないが、初回の全履歴バックフィルは日数分の時間がかかる

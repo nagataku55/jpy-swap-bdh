@@ -13,9 +13,11 @@
     それより古い欠損は自動では埋めない(意図しない全期間再計算のガード)。
   - 計算結果が前日比でWARN_THRESHOLD(既定50bp)を超えて動いた場合、取り込み自体は
     継続しつつ警告メッセージを集めて返す(呼び出し元がUpdateLogシートに書く想定)。
-  - 計算対象のあったrunでは、監査用CSV(csv_audit/ForwardHistory_YYYY-MM-DD.csv)を
-    追記する。Excelのシートを経由しない(forward_historyはそもそもシート上に無いデータ
-    なので、サーバー側で直接CSVに残す)。
+  - 実行するたびに、監査用CSV(csv_audit/ForwardHistory_YYYY-MM-DD.csv)に
+    forward_historyの全履歴を書き出す。スポット側(ExportHistLevels.basが出力する
+    JPY_TONA_Hist全体のCSV)と同じワイド形式(1列目=Date、2列目以降=スペックごとの
+    レート列)に揃えている。Excelのシートを経由しない(forward_historyはそもそも
+    シート上に無いデータなので、サーバー側で直接CSVに残す)。
   - 1日分のカーブ構築/計算が失敗しても(実データ特有のカーブ形状でQuantLibの
     ブートストラップが収束しない等)、その日だけスキップして残りの日付の計算を
     続ける。1日の異常で全体が500エラーになり日次更新全体が止まるのを防ぐため。
@@ -33,19 +35,46 @@ WARN_THRESHOLD = 0.0050  # 50bp(前日比でこれを超えて動いたら警告
 AUDIT_DIR = Path(__file__).parent / "csv_audit"
 
 
-def _write_audit_csv(rows: list[dict]) -> Path:
-    """計算した行をcsv_audit/ForwardHistory_<実行日>.csvに追記する。
-    同日に複数回実行された場合は上書き(その日の最新の計算結果を残す)。
+def _tenor_sort_key(spec: tuple) -> tuple:
+    """(start_tenor, forward_tenor)を期間の長さ順(1Y, 2Y, ...であり辞書順ではない)
+    に並べるためのキー。列の並び順をテナーの自然な順序にするためだけに使う。
     """
+    from qlutils import approx_months, parse_period
+
+    start_tenor, forward_tenor = spec
+    return (approx_months(parse_period(start_tenor)), approx_months(parse_period(forward_tenor)))
+
+
+def _write_audit_csv() -> "Path | None":
+    """forward_historyの全履歴を、スポット側(ExportHistLevels.basが出力する
+    JPY_TONA_Histシートのワイド形式CSV)と同じ型でcsv_audit/ForwardHistory_<実行日>.csv
+    に書き出す。1列目=Date、2列目以降=スペック(例: "1Y1Y")ごとのレート列。
+    同日に複数回実行された場合は上書き(その日の最新の全履歴を残す)。データが
+    まだ無い場合はNoneを返し、ファイルを作らない。
+    """
+    rows = history_store.load_forward_history()
+    if not rows:
+        return None
+
+    specs = sorted({(r["start_tenor"], r["forward_tenor"]) for r in rows}, key=_tenor_sort_key)
+    spec_labels = {spec: f"{spec[0]}{spec[1]}" for spec in specs}
+
+    by_date: dict[str, dict[str, float]] = {}
+    for r in rows:
+        label = spec_labels[(r["start_tenor"], r["forward_tenor"])]
+        by_date.setdefault(r["as_of_date"], {})[label] = r["rate"]
+
     AUDIT_DIR.mkdir(exist_ok=True)
     out_path = AUDIT_DIR / f"ForwardHistory_{date.today().isoformat()}.csv"
 
-    fieldnames = ["as_of_date", "index_name", "ccy", "start_tenor", "forward_tenor", "rate"]
+    fieldnames = ["Date"] + [spec_labels[spec] for spec in specs]
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        for r in rows:
-            writer.writerow({k: r[k] for k in fieldnames})
+        for d in sorted(by_date.keys()):
+            row = {"Date": d}
+            row.update(by_date[d])
+            writer.writerow(row)
 
     return out_path
 
@@ -75,7 +104,6 @@ def refresh_missing(
 
     computed = 0
     warnings: list[str] = []
-    all_new_rows: list[dict] = []
 
     # この処理全体で接続を1回だけ開いて使い回す。何百回ものクエリを1回ずつ
     # connect()し直すと接続オーバーヘッドが積み重なって大きく遅くなるため
@@ -166,14 +194,14 @@ def refresh_missing(
 
                 history_store.upsert_forward_rows(conn, new_rows_for_date)
                 computed += len(new_rows_for_date)
-                all_new_rows.extend(new_rows_for_date)
 
         conn.commit()
     finally:
         conn.close()
 
-    if all_new_rows:
-        _write_audit_csv(all_new_rows)
+    # 新規計算が無かった日(computed=0)でも、スポット側の日次CSV出力と同じように
+    # 毎回その時点の全履歴を書き出す(差分ログではなく、常に現在の全体像を残す)。
+    _write_audit_csv()
 
     return {"computed": computed, "warnings": warnings}
 
