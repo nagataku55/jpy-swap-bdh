@@ -80,6 +80,15 @@ def refresh_forward_history(payload: ForwardHistoryRefreshRequest):
     return forward_history.refresh_missing(max_backfill_days=payload.max_backfill_days)
 
 
+@app.get("/swaphistory")
+def get_swap_history(since: Optional[str] = None):
+    """分析ExcelのPower Queryから呼ぶ想定の読み出し専用エンドポイント。
+    スポットのTONAスワップレート(swap_history)をロング形式(1行=1日×1テナー)で
+    全件(またはsince以降)返す。rateは小数で、/forwardhistoryと単位が揃っている。
+    tenor_yearsはテナーを短い順に並べるためのソートキー。"""
+    return {"rows": history_store.load_swap_history_long(since=since)}
+
+
 @app.get("/forwardhistory")
 def get_forward_history(since: Optional[str] = None):
     """分析ExcelのPower Queryから呼ぶ想定の読み出し専用エンドポイント。
