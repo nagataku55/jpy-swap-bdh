@@ -285,6 +285,59 @@ def upsert_forward_rows(conn: sqlite3.Connection, rows: list[dict]) -> int:
     return len(rows)
 
 
+def _tenor_years(tenor: str) -> Optional[float]:
+    """テナー表記(ON, O/N, 1D, 1W, 3M, 10Y等)をおおよその年数に変換する。
+    分析Excelでテナーを短い順に並べるためのソートキー用(文字列のままだと
+    "10Y"が"1M"より前に来てしまうため)。解釈できない表記はNone。
+    QuantLibを読み込まずに済むよう、qlutils.parse_periodは使わない。"""
+    t = tenor.strip().upper()
+    if t in ("ON", "O/N"):
+        return round(1 / 365, 6)
+    units = {"D": 1 / 365, "W": 7 / 365, "M": 1 / 12, "Y": 1.0}
+    if len(t) >= 2 and t[-1] in units and t[:-1].isdigit():
+        return round(int(t[:-1]) * units[t[-1]], 6)
+    return None
+
+
+def load_swap_history_long(
+    since: Optional[str] = None, index_name: str = "TONA", ccy: str = "JPY"
+) -> list[dict]:
+    """GET /swaphistory用。swap_history(スポットのTONAスワップレート)をロング形式
+    (1行=1日×1テナー)で返す。sinceを指定するとas_of_date >= sinceに絞り込む。
+    rateは小数(例0.00751)のまま返す(/forwardhistoryと単位を揃えるため)。
+    """
+    sql = """
+        SELECT as_of_date, tenor, index_name, ccy, rate
+        FROM swap_history
+        WHERE index_name = ? AND ccy = ?
+    """
+    params: list = [index_name, ccy]
+    if since:
+        sql += " AND as_of_date >= ?"
+        params.append(since)
+    sql += " ORDER BY as_of_date ASC"
+
+    conn = _connect()
+    try:
+        cur = conn.execute(sql, params)
+        rows = [
+            {
+                "as_of_date": r[0],
+                "tenor": r[1],
+                "tenor_years": _tenor_years(r[1]),
+                "index_name": r[2],
+                "ccy": r[3],
+                "rate": r[4],
+            }
+            for r in cur.fetchall()
+        ]
+    finally:
+        conn.close()
+    # 同じ日付内はテナーの短い順に並べる(解釈できないテナーは末尾)
+    rows.sort(key=lambda x: (x["as_of_date"], x["tenor_years"] is None, x["tenor_years"] or 0))
+    return rows
+
+
 def load_forward_history(since: Optional[str] = None) -> list[dict]:
     """GET /forwardhistory用。ロング形式(1行=1日×1スペック)のレコード一覧を返す。
     sinceを指定すると、その日付以降(as_of_date >= since)だけに絞り込む。

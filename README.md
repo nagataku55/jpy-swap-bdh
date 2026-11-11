@@ -38,7 +38,7 @@ Excel ブック(jpy_tona_data.xlsm)
 DailyUpdate.bas が上記を1本の処理としてまとめ、run_daily_update.ps1 + タスクスケジューラで
 16:30頃に無人実行する。
 
-分析Excel(別ワークブック、同一PC) ── Power Query(Webから取得) ──▶ GET /forwardhistory
+分析Excel(別ワークブック、同一PC) ── Power Query(Webから取得) ──▶ GET /forwardhistory, GET /swaphistory
   └─ RawDataシート(ロング形式テーブル) → ピボットテーブル/ピボットグラフで分析
 ```
 
@@ -48,7 +48,7 @@ DailyUpdate.bas が上記を1本の処理としてまとめ、run_daily_update.p
 |---|---|
 | `jpy_tona_data.xlsx`(運用時は`.xlsm`) | Excel本体。Control/JPY_TONA_Hist/config_csv/config_fwd/UpdateLogシートを持つ |
 | `gen_bdh_workbook.py` | 上記ワークブックをゼロから生成するスクリプト(BDH数式付き)。テナー構成やレイアウトを変えたい時はこれを編集して再実行する |
-| `main.py` | FastAPIアプリ本体。`/history`・`/forwardspec/sync`・`/forwardhistory/refresh`・`/forwardhistory`を提供 |
+| `main.py` | FastAPIアプリ本体。`/history`・`/forwardspec/sync`・`/forwardhistory/refresh`・`/forwardhistory`・`/swaphistory`を提供 |
 | `history_store.py` | SQLite(`swap_history.db`)への保存・読み出し(`swap_history`/`forward_spec`/`forward_history`の3テーブル) |
 | `curves.py` | QuantLibでOISカーブをブートストラップし、割引率・フォワードレート・フォワードスワップレート(`forward_swap_rate`)・PV・バケット感応度を計算する |
 | `qlutils.py` | カレンダー・日数計算・営業日調整・テナー解析などのQuantLib変換ヘルパー |
@@ -195,6 +195,17 @@ schtasks /Create /TN "SwapHistory_DailyUpdate" /TR "powershell -ExecutionPolicy 
   都度編集する必要が無い)
 - 更新は「データ→すべて更新」。全行が最新の内容に置き換わる(差分追記ではない)
 - 必要に応じて`GET /forwardhistory?since=YYYY-MM-DD`で絞り込みも可能(将来、履歴が増えた時用)
+
+### I. 分析ExcelにスポットのTONAスワップレートを取り込む(Power Query)
+
+Hと同じ手順で、URLに `http://127.0.0.1:8000/swaphistory` を指定し、別のシート(例: `RawSpot`)に
+テーブルとして読み込む。
+
+- ロング形式(1行=1日×1テナー: `as_of_date, tenor, tenor_years, index_name, ccy, rate`)
+- `rate`は**小数**(`/forwardhistory`と同じ単位)。%で見たい場合はピボット側で表示形式を変える
+- `tenor_years`はテナーのおおよその年数(`ON`≒0.0027, `3M`=0.25, `10Y`=10)。ピボットでテナーを
+  文字列のまま並べると`10Y`が`1M`より前に来てしまうので、短い順に並べたい時のソートキーとして使う
+- `GET /swaphistory?since=YYYY-MM-DD`で絞り込みも可能
 
 ## DBテーブル構造
 
