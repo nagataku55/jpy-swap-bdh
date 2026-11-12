@@ -91,9 +91,25 @@ Private Function HttpPostJson(url As String, jsonBody As String) As Variant
         Exit Function
     End If
 
-    HttpPostJson = http.responseText
+    ' responseTextはContent-Typeにcharsetが無いとUTF-8を正しく解釈できず、警告メッセージの
+    ' 日本語が文字化けする。バイト列(responseBody)をUTF-8として明示的に読み直す。
+    HttpPostJson = Utf8BytesToString(http.responseBody)
     Exit Function
 
 ErrHandler:
     HttpPostJson = CVErr(xlErrNA)
+End Function
+
+
+Private Function Utf8BytesToString(bytes As Variant) As String
+    Dim stream As Object
+    Set stream = CreateObject("ADODB.Stream")
+    stream.Type = 1   ' adTypeBinary
+    stream.Open
+    stream.Write bytes
+    stream.Position = 0
+    stream.Type = 2   ' adTypeText
+    stream.Charset = "utf-8"
+    Utf8BytesToString = stream.ReadText
+    stream.Close
 End Function

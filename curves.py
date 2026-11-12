@@ -26,6 +26,13 @@ from qlutils import (
 _ON_ALIASES = {"ON", "O/N"}
 
 _MAX_CACHE_SIZE = 200
+
+# ブートストラップの収束判定(割引率の反復ごとの変化幅)。QuantLibの既定は1e-12だが、
+# Kruger法のようなグローバル補間では反復のたびに全ノードが少しずつ動くため、
+# 実データで「last improvement 5e-12〜9e-12」のように既定値のわずか手前で
+# 99回の反復上限に達して失敗する日が多数あった(2025-11〜2026-11で約30日)。
+# 1e-10は割引率の誤差として0.0001bp未満で、レートへの影響は実質ゼロ。
+BOOTSTRAP_ACCURACY = 1e-10
 # curve_id -> {"curve": ql.YieldTermStructure, "params": 構築時のpayload(instruments含む)}
 # paramsを保持するのは、バケット感応度計算で個々のテナーだけレートをbumpして再構築するため。
 _curve_cache: "OrderedDict[str, dict]" = OrderedDict()
@@ -126,6 +133,14 @@ def build_curve(
             helper = ql.DepositRateHelper(quote, tenor_period, 0, calendar, convention, is_eom, day_count)
         else:
             payment_frequency = ql.Once if approx_months(tenor_period) <= 12 else ql.Annual
+            # pillar(カーブのノード)は支払日ではなく満期日(=複利計算期間の終了日)に置く。
+            # OISのパーレートは「スポット日〜満期日」の割引率の比だけで決まり、支払日
+            # (満期日+payment_lag営業日)の割引率には依存しない(両レッグとも同じ日に
+            # 払うので打ち消し合う)。既定のLastRelevantDate(=支払日)だと、年末年始・
+            # GW・シルバーウィークのように祝日が続く時期に、短期テナーの支払日が次の
+            # テナーの満期日付近まで後ろにずれ、「そのノードを動かしても自分のレートが
+            # 変わらない」状態になってルート探索が失敗していた
+            # (RuntimeError: root not bracketed: f[...] -> [x, x])。
             helper = ql.OISRateHelper(
                 settlement_days,
                 tenor_period,
@@ -137,6 +152,9 @@ def build_curve(
                 convention,
                 payment_frequency,
                 calendar,
+                ql.Period(0, ql.Days),  # forwardStart
+                0.0,                    # overnightSpread
+                ql.Pillar.MaturityDate,
             )
         helpers.append(helper)
 
@@ -144,7 +162,8 @@ def build_curve(
     # 長期の一部が疎)でブートストラップが収束しないことがあった。Kruger法(単調性を
     # 保つ3次スプライン)なら同じデータでも収束し、フォワードレートも滑らかになる。
     log_cubic = ql.LogCubic(ql.CubicInterpolation.Kruger, True)
-    curve = ql.PiecewiseLogCubicDiscount(ql_valuation_date, helpers, day_count, [], [], log_cubic)
+    bootstrap = ql.IterativeBootstrap(BOOTSTRAP_ACCURACY)
+    curve = ql.PiecewiseLogCubicDiscount(ql_valuation_date, helpers, day_count, [], [], log_cubic, bootstrap)
     curve.enableExtrapolation()
 
     if len(_curve_cache) >= _MAX_CACHE_SIZE:
