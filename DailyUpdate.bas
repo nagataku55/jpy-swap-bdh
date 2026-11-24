@@ -3,7 +3,8 @@ Option Explicit
 
 ' BDH再計算後に、エラーが無ければ保存→CSV監査ログ出力(ExportHistLevels.bas)
 ' →FastAPI経由でSQLite取り込み(ExportToDb.bas)→config_fwd同期(ForwardSpec.bas)
-' →フォワードスワップレートの欠損バックフィル(ForwardHistory.bas)まで行う。
+' →フォワードスワップレートの欠損バックフィル(ForwardHistory.bas)
+' →短期セクターの同期・バックフィル(ForwardSpecShort.bas / ForwardHistoryShort.bas)まで行う。
 '
 ' 呼び出し方は2通り:
 '   - RunDailyUpdate_Manual  : シート上のボタンに割り当てる(結果をMsgBoxで表示)
@@ -23,6 +24,9 @@ Private Const RECALC_TIMEOUT_SEC As Long = 60
 ' データシート名はハードコードせず、Controlシートの設定セルから読む
 Private Const CONTROL_SHEET As String = "Control"
 Private Const DATA_SHEET_NAME_CELL As String = "B24"  ' 例: "JPY_TONA_Hist"
+
+' 短期フォワード用の設定シート(ForwardSpecShort.basと同じ名前)
+Private Const SHORT_CONFIG_SHEET As String = "config_fwd_short"
 
 
 Public Sub RunDailyUpdate_Manual()
@@ -90,8 +94,23 @@ Private Sub RunDailyUpdate(silent As Boolean)
     forwardRefreshMsg = ForwardHistory.RunForwardHistoryRefresh_Silent()
     LogStatus "ForwardHistory更新: " & forwardRefreshMsg
 
+    ' 短期セクター(config_fwd_shortシート)。シートがまだ無いブックでは毎日エラーに
+    ' ならないよう、同期・計算ともスキップする(ログにはスキップした旨を残す)。
+    Dim shortSyncMsg As String, shortRefreshMsg As String
+    If SheetExists(SHORT_CONFIG_SHEET) Then
+        shortSyncMsg = ForwardSpecShort.RunForwardSpecShortSync_Silent()
+        LogStatus "ForwardSpecShort同期: " & shortSyncMsg
+
+        shortRefreshMsg = ForwardHistoryShort.RunForwardHistoryShortRefresh_Silent()
+        LogStatus "ForwardHistoryShort更新: " & shortRefreshMsg
+    Else
+        LogStatus "ForwardSpecShort/ForwardHistoryShort: シート'" & SHORT_CONFIG_SHEET & "'が無いためスキップしました"
+    End If
+
     If InStr(1, forwardSyncMsg, "エラー", vbTextCompare) = 1 Or _
-       InStr(1, forwardRefreshMsg, "エラー", vbTextCompare) = 1 Then
+       InStr(1, forwardRefreshMsg, "エラー", vbTextCompare) = 1 Or _
+       InStr(1, shortSyncMsg, "エラー", vbTextCompare) = 1 Or _
+       InStr(1, shortRefreshMsg, "エラー", vbTextCompare) = 1 Then
         LogStatus "完了(フォワード処理に警告あり): DB取り込みは成功しました"
         NotifyIfInteractive silent, "更新は完了しましたが、フォワードスワップレートの処理に" & _
             "問題がありました。UpdateLogシートを確認してください。", vbExclamation
@@ -189,13 +208,23 @@ Private Function FindErrorCell(sheetName As String, startCellRef As String) As S
 End Function
 
 
+' 指定した名前のシートがこのブックにあるか。
+Private Function SheetExists(sheetName As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets(sheetName)
+    On Error GoTo 0
+    SheetExists = Not ws Is Nothing
+End Function
+
+
 Private Sub NotifyIfInteractive(silent As Boolean, msg As String, buttons As VbMsgBoxStyle)
     If Not silent Then MsgBox msg, buttons
 End Sub
 
 
 ' UpdateLogシート(無ければ自動作成)にタイムスタンプ付きで1行追記する。
-' Public: ExportToDb/ExportHistLevels/ForwardSpec/ForwardHistoryの各*_Manualサブが
+' Public: ExportToDb/ExportHistLevels/ForwardSpec/ForwardHistory(および*Short)の各*_Manualサブが
 ' 単体実行時にもログを残すため、DailyUpdate.LogStatus(...)として呼び出せるようにする。
 Public Sub LogStatus(msg As String)
     Dim ws As Worksheet

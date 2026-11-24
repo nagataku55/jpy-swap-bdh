@@ -16,13 +16,16 @@ Excel ブック(jpy_tona_data.xlsm)
   ├─ JPY_TONA_Histシート: スポットレート本体(ワイド形式)
   ├─ config_csvシート: CSV監査出力ジョブ一覧(スポット用)
   ├─ config_fwdシート: 追跡するフォワードスワップ一覧(StartTenor|ForwardTenor|Active)
+  ├─ config_fwd_shortシート: 短期セクターのフォワードスワップ一覧(同じ列構成)
   └─ UpdateLogシート: 日次実行ログ(自動生成)
         │
         ├─ ExportHistLevels.bas ──▶ CSV監査ログ(csv_audit/配下、日付付きファイル名)
         │
         ├─ ExportToDb.bas ──▶ POST /history ─────────┐
         ├─ ForwardSpec.bas ──▶ POST /forwardspec/sync ─┤
-        └─ ForwardHistory.bas ─▶ POST /forwardhistory/refresh ┤
+        ├─ ForwardHistory.bas ─▶ POST /forwardhistory/refresh ┤
+        ├─ ForwardSpecShort.bas ──▶ POST /forwardspec_short/sync ┤
+        └─ ForwardHistoryShort.bas ─▶ POST /forwardhistory_short/refresh ┤
                                                                ▼
                                                      FastAPI(main.py)
                                                                │
@@ -34,6 +37,7 @@ Excel ブック(jpy_tona_data.xlsm)
                                                                │
                                                curves.py / qlutils.py / forward_history.py
                                                (カーブ再構築→forward_swap_rate()でパーレート計算)
+                                               短期は forward_history_short.py → forward_spec_short / forward_history_short
 
 DailyUpdate.bas が上記を1本の処理としてまとめ、run_daily_update.ps1 + タスクスケジューラで
 16:30頃に無人実行する。
@@ -53,11 +57,14 @@ DailyUpdate.bas が上記を1本の処理としてまとめ、run_daily_update.p
 | `curves.py` | QuantLibでOISカーブをブートストラップし、割引率・フォワードレート・フォワードスワップレート(`forward_swap_rate`)・PV・バケット感応度を計算する |
 | `qlutils.py` | カレンダー・日数計算・営業日調整・テナー解析などのQuantLib変換ヘルパー |
 | `forward_history.py` | `swap_history`にあるがまだ`forward_history`に無い日付をまとめて計算する(`refresh_missing`)。日次実行と初回/欠損バックフィルを区別しない1本のロジック |
+| `forward_history_short.py` | 短期セクター版の`refresh_missing`。結果は`forward_history_short`に保存。短期側のカーブ補間を変える時は`_build_curve_for_date()`だけ差し替える(現状は長期と同じ`build_curve`) |
 | `requirements.txt` | Python依存パッケージ(`pip install -r requirements.txt`) |
 | `ExportToDb.bas` | ExcelのVBAマクロ。`JPY_TONA_Hist`シートを読み、FastAPIの`/history`へJSONでPOSTする |
 | `ExportHistLevels.bas` | ExcelのVBAマクロ。`config_csv`シートで指定したシートをCSVへ出力する(スポットの監査ログ用) |
 | `ForwardSpec.bas` | ExcelのVBAマクロ。`config_fwd`シートの内容を`/forwardspec/sync`へPOSTし、DBの`forward_spec`を同期する |
 | `ForwardHistory.bas` | ExcelのVBAマクロ。`/forwardhistory/refresh`を呼び、欠損しているフォワードスワップレートを計算させる |
+| `ForwardSpecShort.bas` | `config_fwd_short`シートを`/forwardspec_short/sync`へPOSTする。`CreateConfigSheet_Short`でシートの雛形を作れる |
+| `ForwardHistoryShort.bas` | `/forwardhistory_short/refresh`を呼び、短期フォワードの欠損分を計算させる |
 | `DailyUpdate.bas` | 上記を「再計算待ち→エラーチェック→保存→CSV出力→DB取り込み→ForwardSpec同期→ForwardHistory更新→ログ記録」の1本の処理にまとめる |
 | `run_daily_update.ps1` | Excelを非表示で開き`DailyUpdate.RunDailyUpdate_Silent`を実行する(タスクスケジューラから呼ぶ) |
 | `start_api_server.ps1` | `uvicorn main:app`をバックグラウンドで起動する(ログオン時にタスクスケジューラから呼ぶ。ポートが既に使用中なら何もしないので多重起動しない) |
@@ -91,6 +98,8 @@ QuantLib(カーブ構築)・pandas・openpyxl(ワークブック生成)・fastap
    - `ExportHistLevels.bas`
    - `ForwardSpec.bas`
    - `ForwardHistory.bas`
+   - `ForwardSpecShort.bas`
+   - `ForwardHistoryShort.bas`
    - `DailyUpdate.bas`
 3. シート上にボタンを置き、`DailyUpdate.RunDailyUpdate_Manual`等を割り当てると手動実行できる
 
@@ -143,6 +152,23 @@ Excelでボタンを押して`ExportHistLevels.ExportAllSheetsToCsv`を実行す
 継続しつつ警告メッセージを返す(`UpdateLog`シートやMsgBoxに出る)。入力(スポットカーブ)側の
 取得ミスに気づく手がかりとして使う。
 
+### E2. 短期フォワードスワップレートを追加/計算する(config_fwd_shortシート)
+
+長期側(E)と同じ手順・同じ考え方で、シート・テーブル・モジュールだけが別になっている。
+短期側は将来カーブの補間方法を長期側と変える可能性があるため、計算結果を
+`forward_history_short`という別テーブルに分けて保存する。
+
+1. 初回のみ`ForwardSpecShort.CreateConfigSheet_Short`を実行 → 見出しと例の行(1M1M, 3M3M, 6M3M, 6M6M, 9M3M, 1Y3M, 1Y6M, 18M6M)が入った`config_fwd_short`シートができる。例の行は必要に応じて書き換える
+2. `ForwardSpecShort.RunForwardSpecShortSync_Manual`を実行 → `forward_spec_short`が同期される
+3. `ForwardHistoryShort.RunForwardHistoryShortRefresh_Manual`を実行 → 過去分(`Control!最大バックフィル日数`まで。長期と共通)が計算され、`forward_history_short`に入る
+4. 分析Excelへは`http://127.0.0.1:8000/forwardhistory_short`をPower Queryで取り込む(列構成は`/forwardhistory`と同じ)
+
+- スタート日・終了日の規則は長期側と同じ(スポット日起点、Modified Following)。`ForwardTenor`が12ヶ月以下なら固定レグ一括払い
+- カーブの元になるスポットテナー(2M・4M・9M・18M等)は`swap_history`にあるものがそのまま使われる
+- 前日比警告の閾値は`forward_history_short.WARN_THRESHOLD`(既定50bp)。警告メッセージの先頭に`[短期]`が付く
+- 監査CSVは`csv_audit/ForwardHistoryShort_<実行日>.csv`
+- `DailyUpdate`は`config_fwd_short`シートがあれば長期側の後に自動で同期・計算する(シートが無いブックではスキップし、ログに残す)
+
 ### F. 日次更新を1本で行う(手動)
 
 Excelでボタンを押して`DailyUpdate.RunDailyUpdate_Manual`を実行すると、以下を順に行う。
@@ -154,6 +180,7 @@ Excelでボタンを押して`DailyUpdate.RunDailyUpdate_Manual`を実行する�
 5. FastAPI経由でスポットをDBに取り込み(`ExportToDb`)
 6. `config_fwd`シートをDBに同期(`ForwardSpec`)
 7. フォワードスワップレートの欠損分を計算(`ForwardHistory`)。実質当日分のみ
+7b. `config_fwd_short`シートがあれば、短期側も同期・計算(`ForwardSpecShort`→`ForwardHistoryShort`)
 8. 結果を`UpdateLog`シートに追記
 
 手順5(スポット取り込み)が失敗した場合は6・7を実行せず中止する。6・7で問題があっても、
@@ -247,6 +274,11 @@ Hと同じ手順で、URLに `http://127.0.0.1:8000/swaphistory` を指定し、
 
 `UNIQUE(as_of_date, index_name, ccy, start_tenor, forward_tenor)` — 同じキーはUPSERT(上書き)される。
 `forward_spec`を`Active=FALSE`にしても、ここの既存行は削除されない。
+
+### `forward_spec_short` / `forward_history_short`(短期セクター)
+
+列構成・UNIQUE制約・UPSERTの挙動は`forward_spec` / `forward_history`と同じ。
+`history_store.py`の関数は`sector="short"`を渡すとこちらのテーブルを読み書きする(既定は`"long"`)。
 
 ## 既知の注意点
 
